@@ -31,20 +31,53 @@ var VueReactivity = (() => {
       this.fn = fn;
     }
     active = true;
+    parent = null;
+    deps = [];
     run() {
       if (!this.active) {
         this.fn();
       }
       try {
+        this.parent = activeEffect;
         activeEffect = this;
         return this.fn();
       } finally {
-        activeEffect = void 0;
+        activeEffect = this.parent;
       }
     }
   };
+  var targetMap = /* @__PURE__ */ new WeakMap();
   function effect(fn) {
     const _effect = new ReactiveEffect(fn);
+  }
+  function track(target, type, key) {
+    if (!activeEffect) {
+      return;
+    }
+    let depsMap = targetMap.get(target);
+    if (!depsMap) {
+      depsMap.set(target, depsMap = /* @__PURE__ */ new Map());
+    }
+    let dep = depsMap.get(key);
+    if (!dep) {
+      depsMap.set(key, dep = /* @__PURE__ */ new Set());
+    }
+    const shouldTrack = !dep.has(activeEffect);
+    if (shouldTrack) {
+      dep.add(activeEffect);
+      activeEffect.deps.push(dep);
+    }
+  }
+  function trigger(target, type, key, value, oldValue) {
+    const depsMap = targetMap.get(target);
+    if (!depsMap)
+      return;
+    const effects = depsMap.get(key);
+    effects && effects.forEach((effect2) => {
+      if (effect2 !== activeEffect) {
+        effect2.run();
+      }
+    });
   }
 
   // packages/shared/src/index.ts
@@ -58,16 +91,21 @@ var VueReactivity = (() => {
       if (key === "__v_isReactive" /* IS_REACTIVE */) {
         return true;
       }
+      track(target, "get", key);
       return Reflect.get(target, key, receiver);
     },
     set(target, key, value, receiver) {
-      Reflect.set(target, key, value, receiver);
-      return true;
+      const oldValue = target[key];
+      if (oldValue !== value) {
+        trigger(target, "set", key, value, oldValue);
+      }
+      let result = Reflect.set(target, key, value, receiver);
+      return result;
     }
   };
 
   // packages/reactivity/src/reactive.ts
-  var targetMap = /* @__PURE__ */ new WeakMap();
+  var targetMap2 = /* @__PURE__ */ new WeakMap();
   function reactive(target) {
     if (isObject(target)) {
       return;
@@ -75,13 +113,13 @@ var VueReactivity = (() => {
     if (target["__v_isReactive" /* IS_REACTIVE */]) {
       return target;
     }
-    let existProxy = targetMap.get(target);
+    let existProxy = targetMap2.get(target);
     if (existProxy) {
       return existProxy;
     }
     const proxy = new Proxy(target, mutableHandler);
-    if (!targetMap[target]) {
-      targetMap.set(target, proxy);
+    if (!targetMap2[target]) {
+      targetMap2.set(target, proxy);
     }
     return proxy;
   }
