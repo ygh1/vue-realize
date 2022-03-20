@@ -1,5 +1,13 @@
 export let activeEffect = undefined
 
+function cleanupEffect (effect) {
+  const { deps } = effect
+
+  for (let i =0; i < deps.length; i++) {
+    deps[i].delete(effect)
+    effect.deps.length = 0
+  }
+}
 class ReactiveEffect {
   public active =  true
   public parent = null
@@ -15,6 +23,8 @@ class ReactiveEffect {
     try {
       this.parent = activeEffect
       activeEffect = this
+
+      cleanupEffect(this)
       return this.fn()
     } finally {
       activeEffect = this.parent
@@ -52,7 +62,11 @@ export function trigger (target, type, key, value, oldValue) {
   const depsMap = targetMap.get(target)
 
   if (!depsMap) return
-  const effects = depsMap.get(key)
+  let effects = depsMap.get(key)
+
+  if (effects) {
+    effects = new Set(effects)
+  }
 
   effects && effects.forEach(effect => {
     if (effect !== activeEffect) {
